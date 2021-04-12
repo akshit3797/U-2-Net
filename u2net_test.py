@@ -12,6 +12,8 @@ from torchvision import transforms#, utils
 import numpy as np
 from PIL import Image
 import glob
+import argparse
+import cv2
 
 from data_loader import RescaleT
 from data_loader import ToTensor
@@ -30,40 +32,56 @@ def normPRED(d):
 
     return dn
 
-def save_output(image_name,pred,d_dir):
+def save_output(image_name,pred,output_dir, result_dir):
 
     predict = pred
     predict = predict.squeeze()
     predict_np = predict.cpu().data.numpy()
+    predict_np = predict_np*255
 
-    im = Image.fromarray(predict_np*255).convert('RGB')
-    img_name = image_name.split(os.sep)[-1]
-    image = io.imread(image_name)
-    imo = im.resize((image.shape[1],image.shape[0]),resample=Image.BILINEAR)
+    mask = cv2.cvtColor(predict_np, cv2.COLOR_GRAY2BGR).astype(np.uint8)
+    orig_image = cv2.imread(image_name)
+    mask = cv2.resize(
+        mask, (orig_image.shape[1], orig_image.shape[0]), interpolation=cv2.INTER_LINEAR)
 
-    pb_np = np.array(imo)
+    # masked_image = cv2.bitwise_and(orig_image, mask)
+    masked_white_bg = cv2.bitwise_or(orig_image, 255-mask)
 
-    aaa = img_name.split(".")
-    bbb = aaa[0:-1]
-    imidx = bbb[0]
-    for i in range(1,len(bbb)):
-        imidx = imidx + "." + bbb[i]
+    # img_tile = [[orig_image, mask],
+    #             [masked_image, masked_white_bg]]
 
-    imo.save(d_dir+imidx+'.png')
+    # img_tile = cv2.vconcat([cv2.hconcat(im_list_h) for im_list_h in img_tile])
+
+    img_name = image_name.split("/")[-1].rsplit(".", 1)[0]
+    cv2.imwrite(output_dir+img_name+'.png', mask)
+    cv2.imwrite(result_dir+img_name+'.jpg', masked_white_bg)
+
 
 def main():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--input_dir", help="input directory",
+                        default='./test_data/test_images/')
+    parser.add_argument("-o", "--output_dir", help="output directory",
+                        default='./test_data/test_results/')
+    parser.add_argument("-r", "--result_dir", help="result directory",
+                        default='./test_data/test_results/')
+    args = parser.parse_args()
+
+    image_dir = args.input_dir
+    prediction_dir = args.output_dir
+    result_dir = args.result_dir
+    if not os.path.exists(prediction_dir):
+        os.makedirs(prediction_dir, exist_ok=True)
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir, exist_ok=True)
 
     # --------- 1. get image path and name ---------
     model_name='u2net'#u2netp
 
+    model_dir = './saved_models/u2net/u2net.pth'
 
-
-    image_dir = os.path.join(os.getcwd(), 'test_data', 'test_images')
-    prediction_dir = os.path.join(os.getcwd(), 'test_data', model_name + '_results' + os.sep)
-    model_dir = os.path.join(os.getcwd(), 'saved_models', model_name, model_name + '.pth')
-
-    img_name_list = glob.glob(image_dir + os.sep + '*')
-    print(img_name_list)
+    img_name_list = glob.glob(image_dir + '*.jpg')
 
     # --------- 2. dataloader ---------
     #1. dataloader
@@ -112,9 +130,7 @@ def main():
         pred = normPRED(pred)
 
         # save results to test_results folder
-        if not os.path.exists(prediction_dir):
-            os.makedirs(prediction_dir, exist_ok=True)
-        save_output(img_name_list[i_test],pred,prediction_dir)
+        save_output(img_name_list[i_test],pred,prediction_dir, result_dir)
 
         del d1,d2,d3,d4,d5,d6,d7
 
