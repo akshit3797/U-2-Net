@@ -39,7 +39,21 @@ def save_output(image_name,pred,output_dir, result_dir):
     predict_np = predict.cpu().data.numpy()
     predict_np = predict_np*255
 
-    mask = cv2.cvtColor(predict_np, cv2.COLOR_GRAY2BGR).astype(np.uint8)
+    mask = predict_np.astype(np.uint8)
+
+    
+    # kernel2 = np.ones((3,3), np.uint8)
+    # ret,mask = cv2.threshold(mask,10,255,cv2.THRESH_BINARY)
+    # mask = cv2.erode(mask, kernel2, iterations= 2)
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) #cv2.RETR_TREE
+    max_contour_area = max([cv2.contourArea(cnt) for cnt in contours])
+    # remove contours having less than 1/3 area
+    rem_contours = list(filter(lambda x: cv2.contourArea(x)/max_contour_area < 0.33, contours))
+    cont = np.ones(mask.shape[:2], dtype="uint8") * 255
+    cv2.drawContours(cont,rem_contours,-1,0,-1,)
+    mask = cv2.bitwise_and(mask, mask, mask=cont)
+    mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR).astype(np.uint8)
+
     orig_image = cv2.imread(image_name)
     mask = cv2.resize(
         mask, (orig_image.shape[1], orig_image.shape[0]), interpolation=cv2.INTER_LINEAR)
@@ -49,11 +63,12 @@ def save_output(image_name,pred,output_dir, result_dir):
 
     # img_tile = [[orig_image, mask],
     #             [masked_image, masked_white_bg]]
-
     # img_tile = cv2.vconcat([cv2.hconcat(im_list_h) for im_list_h in img_tile])
 
+    masked_white_bg = cv2.hconcat([orig_image, masked_white_bg]) 
+
     img_name = image_name.split("/")[-1].rsplit(".", 1)[0]
-    cv2.imwrite(output_dir+img_name+'.png', mask)
+    # cv2.imwrite(output_dir+img_name+'.png', mask)
     cv2.imwrite(result_dir+img_name+'.jpg', masked_white_bg)
 
 
