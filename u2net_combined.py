@@ -23,16 +23,53 @@ from data_loader import SalObjDataset
 from model import U2NET # full size version 173.6 MB
 from model import U2NETP # small version u2net 4.7 MB
 
+def get_output_layers(net):
+    layer_names = net.getLayerNames()
+    output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
+    return output_layers
+
+def check_yolo(orig_image, yolo_net):
+    Width = orig_image.shape[1]
+    Height = orig_image.shape[0]
+    scale = 0.00392   
+    blob = cv2.dnn.blobFromImage(orig_image, scale, (416,416), (0,0,0), True, crop=False)
+    yolo_net.setInput(blob)
+    outs = yolo_net.forward(get_output_layers(yolo_net))
+
+    class_ids = []
+    confidences = []
+    boxes = []
+    conf_threshold = 0.5
+    nms_threshold = 0.4
+
+    for out in outs:
+        for detection in out:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.5:
+                center_x = int(detection[0] * Width)
+                center_y = int(detection[1] * Height)
+                w = int(detection[2] * Width)
+                h = int(detection[3] * Height)
+                x = center_x - w / 2
+                y = center_y - h / 2
+                class_ids.append(class_id)
+                confidences.append(float(confidence))
+                boxes.append([x, y, w, h])
+
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, conf_threshold, nms_threshold)
+    indices = [class_ids[i[0]] for i in indices]
+    return indices
+
 # normalize the predicted SOD probability map
 def normPRED(d):
     ma = torch.max(d)
     mi = torch.min(d)
-
     dn = (d-mi)/(ma-mi)
-
     return dn
 
-def save_output(image_name,pred, human_pred, output_dir, result_dir):
+def save_output(image_name,pred, human_pred, output_dir, result_dir, orig_image):
 
     pred = pred.squeeze()
     pred_np = pred.cpu().data.numpy()
@@ -58,7 +95,7 @@ def save_output(image_name,pred, human_pred, output_dir, result_dir):
     mask = cv2.bitwise_and(mask, mask, mask=cont)
     mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR).astype(np.uint8)
 
-    orig_image = cv2.imread(image_name)
+    # orig_image = cv2.imread(image_name)
     mask = cv2.resize(
         mask, (orig_image.shape[1], orig_image.shape[0]), interpolation=cv2.INTER_LINEAR)
 
@@ -119,6 +156,8 @@ def main():
     net = U2NET(3,1)
     human_net = U2NET(3,1)
 
+    yolo_net = cv2.dnn.readNet('./yolo/yolov3.weights', './yolo/yolov3.cfg')
+
     if torch.cuda.is_available():
         net.load_state_dict(torch.load(model_dir))
         net.cuda()
@@ -150,14 +189,21 @@ def main():
         pred = normPRED(pred)
         del d1,d2,d3,d4,d5,d6,d7
 
-        d1,d2,d3,d4,d5,d6,d7= human_net(inputs_test)
-        # normalization
-        human_pred = d1[:,0,:,:]
-        human_pred = normPRED(human_pred)
-        del d1,d2,d3,d4,d5,d6,d7
+        ## use yolo prediction to determine if person in image
+        orig_image = cv2.imread(img_name_list[i_test])
+        indices = check_yolo(orig_image, yolo_net)
+
+        if 0 in indices:
+            d1,d2,d3,d4,d5,d6,d7= human_net(inputs_test)
+            # normalization
+            human_pred = d1[:,0,:,:]
+            human_pred = normPRED(human_pred)
+            del d1,d2,d3,d4,d5,d6,d7
+        else:
+            human_pred = pred
 
         # save results to test_results folder
-        save_output(img_name_list[i_test],pred, human_pred, prediction_dir, result_dir)
+        save_output(img_name_list[i_test],pred, human_pred, prediction_dir, result_dir, orig_image)
 
 if __name__ == "__main__":
     main()

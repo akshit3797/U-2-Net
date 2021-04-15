@@ -5,11 +5,8 @@ import os
 
 
 def get_output_layers(net):
-    
     layer_names = net.getLayerNames()
-    
     output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
-
     return output_layers
 
 
@@ -50,7 +47,6 @@ if __name__ == '__main__':
     for filename in os.listdir(args.input):
         print(filename)
         image = cv2.imread(os.path.join(args.input,filename))
-
         Width = image.shape[1]
         Height = image.shape[0]
         scale = 0.00392
